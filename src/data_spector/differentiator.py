@@ -29,54 +29,76 @@ class DataDifferentiator:
         self.names = [name for name in kwargs.keys()]
 
         self.master_features = set(self.dfs[0].features)
-        self.others_features = set([df.features for df in self.dfs[1:]])
-        self.shared_features = self.master_features.union(self.others_features)
+        self.others_features = set(*[df.features for df in self.dfs[1:]])
+        self.shared_features = self.master_features.intersection(self.others_features)
+        self.all_features = self.master_features.union(self.others_features)
 
-        self.features_stats = self._dfs_concat([df.features_stats for df in self.dfs])
+        self.features_stats = self._dfs_concat(*[df.features_stats for df in self.dfs])
 
-    def inspect_feature(self, features, plot=False):
+    def inspect(self, which='shared'):
+
+        lst_features = ['master', 'shared', 'all']
+
+        if which in lst_features:
+            features = getattr(self, which + '_features')
+        else:
+            raise ValueError('features should be in {}'.format(lst_features))
+
+        raise NotImplemented()
+
+    def inspect_feature(self, feature, plot=False):
         """
         Print a detailed summary of the feature and comparison among the provided data-sets
 
         Args:
-            features (str or list of str): the feature(s) to inspect
+            feature (str): the feature to inspect
             plot (bool): whether the feature distribution it to be plotted (default=False)
-
         """
 
-        if isinstance(features, list):
-            for feature in features:
-                self.inspect_feature(features=feature, plot=plot)
+        assert feature in self.all_features, 'requested feature is not in the provided data-sets'
 
-        elif not isinstance(features, str):
-            raise ValueError('features should either be a string or list of string, '
-                             'provided {}'.format(features))
+        summaries, traces = [], []
+        for inspector in self.dfs:
+            _summary, _trace = inspector._get_feature_summary(feature=feature, plot=plot)
+            summaries.append(_summary)
+            traces.append(_trace)
 
-    def _get_feature_summary(self, feature, common=True, plot=False):
-        feature_type = self.features_stats[self.train_name].loc[feature, 'types']
-
-        summary = getattr(self, '_get_' + feature_type + '_summary')(feature, common=common)
+        summary = self._dfs_concat(*summaries)
+        diff = self._get_feature_diff(feature=feature)
 
         if plot:
-            getattr(self, '_plot_' + feature_type + '_summary')(feature, common=common)
+            traces = self._traces_concat(*traces)
 
-        return summary
+        return summary, diff, traces
 
-    def _numeric_feature_comparison(self, feature):
+    def _get_feature_diff(self, feature):
 
-        summary = self._train_test_concat(
-            self._numeric_feature_summary('train'),
-            self._numeric_feature_summary('test'),
-        )
+        assert isinstance(feature, str)
 
-        ttest = sp_stats.ttest_ind(self.train[feature], self.test[feature])
+        feature_type = self.features_stats.loc[feature, 'types']
+        diff = getattr(self, '_' + feature_type + '_feature_diff')(feature)
+
+        return diff
+
+    def _numerical_feature_diff(self, feature):
+
+        diff = None
+        series = {
+            self.names[i]: insp.data[feature] for i, insp in enumerate(self.dfs)
+            if (feature in insp.features)
+        }
+
+        ttest = sp_stats.ttest_ind(*series.values())
         # The larger the t-score, the more difference there is between groups. The smaller
         # the t-score, the more similarity there is between groups. The p-value is the
         # probability that the results from your sample data occurred by chance.
 
         c = {'t-statistic': ttest[0], 'two-tailed p-value': ttest[1]}
 
-        return summary
+        return diff
 
     def _dfs_concat(self, *args):
         return pd.concat([*args], axis=1, join='outer', sort=False, keys=[*self.names])
+
+    def _traces_concat(self, *args):
+        return None
