@@ -1,10 +1,14 @@
 import numpy as np
-from scipy import stats as sp_stats
 import pandas as pd
+import plotly.figure_factory as ff
+
+from itertools import combinations
 from pandas.api import types
+from scipy import stats as sp_stats
 
 
-from .inspector import DataInspector
+from data_spector.inspector import DataInspector
+from data_spector.utils import create_freqplot
 
 
 class DataDifferentiator:
@@ -46,6 +50,19 @@ class DataDifferentiator:
 
         raise NotImplemented()
 
+    def inspect_type(self, type, plot=False):
+        """
+        Correlation heatmap for int and float; count of values for bool/categorical
+
+        Args:
+            type (str):
+            plot (bool):
+
+        Returns:
+
+        """
+        raise NotImplemented
+
     def inspect_feature(self, feature, plot=False):
         """
         Print a detailed summary of the feature and comparison among the provided data-sets
@@ -59,46 +76,104 @@ class DataDifferentiator:
 
         summaries, traces = [], []
         for inspector in self.dfs:
-            _summary, _trace = inspector._get_feature_summary(feature=feature, plot=plot)
+            _summary, _ = inspector._get_feature_summary(feature=feature, plot=False)
             summaries.append(_summary)
-            traces.append(_trace)
 
         summary = self._dfs_concat(*summaries)
         diff = self._get_feature_diff(feature=feature)
 
+        fig = None
         if plot:
-            traces = self._traces_concat(*traces)
+            series = {
+                self.names[i]: insp.data[feature].dropna() for i, insp in enumerate(self.dfs)
+                if (feature in insp.features)
+            }
+            # fig = ff.create_distplot(list(series.values()), list(series.keys()))
+            fig = create_freqplot(list(series.values()), list(series.keys()))
 
-        return summary, diff, traces
+        return summary, diff, fig
 
     def _get_feature_diff(self, feature):
 
         assert isinstance(feature, str)
 
-        feature_type = self.features_stats.loc[feature, 'types']
-        diff = getattr(self, '_' + feature_type + '_feature_diff')(feature)
+        feature_type = self.features_stats.loc[feature].loc[:, 'types'].value_counts(dropna=False)
+        feature_type = feature_type.index[0]  # Choose the predominant type
+
+        try:
+            diff = getattr(self, '_' + feature_type + '_feature_diff')(feature)
+        except AttributeError:
+            diff = None
 
         return diff
 
     def _numerical_feature_diff(self, feature):
+        """
+        Inspects the differences among the datasets for the specified feature.
 
-        diff = None
+        Perform the following tests:
+        -   The two-sided T-test for the null hypothesis that 2 independent samples have identical
+            average (expected) values.
+        -   The one-way ANOVA tests the null hypothesis that two or more groups have the same
+            population mean.
+        -   The Kruskal-Wallis H-test tests the null hypothesis that the population median of all
+            of the groups are equal.
+
+        Notes:
+        -   The larger the t-score, the more difference there is between groups. The smaller
+            the t-score, the more similarity there is between groups.
+        -   The p-value is the probability that the results from your sample data occurred by
+            chance.
+
+        """
+
         series = {
-            self.names[i]: insp.data[feature] for i, insp in enumerate(self.dfs)
+            self.names[i]: insp.data[feature].dropna() for i, insp in enumerate(self.dfs)
             if (feature in insp.features)
         }
 
-        ttest = sp_stats.ttest_ind(*series.values())
-        # The larger the t-score, the more difference there is between groups. The smaller
-        # the t-score, the more similarity there is between groups. The p-value is the
-        # probability that the results from your sample data occurred by chance.
+        tests = {
+            't-test': {'func': sp_stats.ttest_ind, 'kwargs': None},
+            'anova': {'func': sp_stats.f_oneway, 'kwargs': None},
+            'h-test': {'func': sp_stats.kruskal, 'kwargs': None}
+        }
 
-        c = {'t-statistic': ttest[0], 'two-tailed p-value': ttest[1]}
+        diff = pd.DataFrame()
+        for n1, n2 in combinations(series.keys(), 2):
+            for tst_name, tst in tests.items():
+                if tst['kwargs']:
+                    stat = tst['func'](series[n1], series[n2], **tst['kwargs'])
+                else:
+                    stat = tst['func'](series[n1], series[n2])
+                diff = diff.append(pd.DataFrame(
+                    data=[[n1, n2, tst_name, stat.statistic, stat.pvalue]]
+                ))
 
-        return diff
+        diff.columns = ['set_1', 'set_2', 'test', 'statistic', 'pvalue']
+
+        return diff.reset_index(drop=True)
 
     def _dfs_concat(self, *args):
         return pd.concat([*args], axis=1, join='outer', sort=False, keys=[*self.names])
 
     def _traces_concat(self, *args):
         return None
+
+
+if __name__ == '__main__':
+    from data_spector.utils import load_data
+    from plotly.offline import plot
+
+    train, test = load_data('Titanic')
+    data_dif = DataDifferentiator(train=train, test=test)
+
+    # _summary, _diff, _fig = data_dif.inspect_feature('Pclass', plot=True)
+    # print(_summary)
+    # print(_diff)
+    # plot(_fig)
+
+    _summary, _fig = data_dif.dfs[0]._get_feature_summary('Pclass', plot=True)
+    plot(_fig)
+
+
+

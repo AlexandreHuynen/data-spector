@@ -1,6 +1,11 @@
 import numpy as np
 import pandas as pd
+
 from pandas.api import types
+import plotly.figure_factory as ff
+
+
+from data_spector.utils import create_freqplot
 
 
 class DataInspector:
@@ -91,7 +96,7 @@ class DataInspector:
             ].index
 
         _stats = get_remaining_features(stats, features_type)
-        features_type['numeric'] = _stats['uniques'][(
+        features_type['numerical'] = _stats['uniques'][(
             (_stats['dtypes'] == 'floating') | (_stats['dtypes'] == 'integer')
         )].index
 
@@ -102,37 +107,13 @@ class DataInspector:
         assert isinstance(feature, str)
         assert isinstance(plot, bool)
 
-        summary, plot = None, None
+        summary, fig = None, None
         if feature in self.features:
             feature_type = self.features_stats.loc[feature, 'types']
 
-            summary, plot = getattr(self, '_' + feature_type + '_feature_summary')(feature, plot)
+            summary, fig = getattr(self, '_' + feature_type + '_feature_summary')(feature, plot)
 
-        return summary, plot
-
-    # def get_features_summary(self, features=None, plot=False):
-    #
-    #     if features is None:
-    #         features = self.features
-    #     elif isinstance(features, str):
-    #         features = [features]
-    #     elif isinstance(features, list):
-    #         absent = list(set(features).difference(self.features))
-    #         if len(absent) > 0:
-    #             print('The features {} are not present in the provided data-set'.format(absent))
-    #         features = list(set(features).union(self.features))
-    #     else:
-    #         raise ValueError('')
-    #
-    #     summaries, plots = [], []
-    #     for feature in features:
-    #         _summary, _plot = self._get_feature_summary(feature=feature, plot=plot)
-    #         summaries.append(_summary)
-    #         plots.append(_plot)
-    #
-    #     summaries = pd.concat(summaries, axis=1, join='outer', sort=False, keys=features)
-    #
-    #     return summaries, plots
+        return summary, fig
 
     def _numerical_feature_summary(self, feature, plot=False, top_corr=3):
         """Return a simple summary of a numerical feature"""
@@ -153,11 +134,11 @@ class DataInspector:
             'top_correlations': self._percentage_format(corr[:top_corr]).to_dict()
         }))
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = ff.create_distplot([series.dropna()], [feature])
 
-        return summary, trace
+        return summary, fig
 
     def _categorical_feature_summary(self, feature, plot=False):
         """Return a simple summary of a categorical feature"""
@@ -185,11 +166,11 @@ class DataInspector:
             top = value_counts.set_index(feature)['freq'].to_dict()
             summary = summary.append(pd.Series(data={'top': top}))
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = create_freqplot([series], None)
 
-        return summary, trace
+        return summary, fig
 
     def _datetime_feature_summary(self, feature, plot=False):
         """Return a simple summary of a datetime feature"""
@@ -198,11 +179,11 @@ class DataInspector:
             'type': 'datetime',
         }).append(series.describe())
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = dict()
 
-        return summary, trace
+        return summary, fig
 
     def _boolean_feature_summary(self, feature, plot=False):
         """Return a simple summary of a boolean feature"""
@@ -224,11 +205,11 @@ class DataInspector:
             pd.Series(data=value_counts.set_index(feature)['freq'].to_dict())
         )
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = dict()
 
-        return summary, trace
+        return summary, fig
 
     def _unique_feature_summary(self, feature, plot=False):
         """Return a simple summary of a unique feature"""
@@ -240,11 +221,11 @@ class DataInspector:
             self.features_stats.loc[feature, ['counts', 'missing']]
         )
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = dict()
 
-        return summary, trace
+        return summary, fig
 
     def _constant_feature_summary(self, feature, plot=False):
         """Return a simple summary of a constant feature"""
@@ -258,11 +239,11 @@ class DataInspector:
             self.features_stats.loc[feature, ['counts', 'missing']]
         )
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = dict()
 
-        return summary, trace
+        return summary, fig
 
     def _other_feature_summary(self, feature, plot=False):
         """Return a simple summary of a constant feature"""
@@ -272,11 +253,11 @@ class DataInspector:
             'type': 'other'
         }).append(series.describe())
 
-        trace = None
+        fig = None
         if plot:
-            trace = dict()
+            fig = dict()
 
-        return summary, trace
+        return summary, fig
 
     @staticmethod
     def _percentage_format(series, digits=2):
