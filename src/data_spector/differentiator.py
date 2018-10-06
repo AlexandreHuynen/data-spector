@@ -84,12 +84,7 @@ class DataDifferentiator:
 
         fig = None
         if plot:
-            series = {
-                self.names[i]: insp.data[feature].dropna() for i, insp in enumerate(self.dfs)
-                if (feature in insp.features)
-            }
-            # fig = ff.create_distplot(list(series.values()), list(series.keys()))
-            fig = create_freqplot(list(series.values()), list(series.keys()))
+            fig = self._get_feature_plot(feature=feature)
 
         return summary, diff, fig
 
@@ -106,6 +101,27 @@ class DataDifferentiator:
             diff = None
 
         return diff
+
+    def _get_feature_plot(self, feature):
+
+        assert isinstance(feature, str)
+
+        feature_type = self.features_stats.loc[feature].loc[:, 'types'].value_counts(dropna=False)
+        feature_type = feature_type.index[0]  # Choose the predominant type
+
+        series = {
+            self.names[i]: insp.data[feature].dropna() for i, insp in enumerate(self.dfs)
+            if (feature in insp.features)
+        }
+
+        if feature_type == 'numerical':
+            fig = ff.create_distplot(list(series.values()), list(series.keys()))
+        elif feature_type in ['categorical', 'boolean']:
+            fig = create_freqplot(list(series.values()), list(series.keys()))
+        else:
+            fig = None
+
+        return fig
 
     def _numerical_feature_diff(self, feature):
         """
@@ -167,13 +183,13 @@ if __name__ == '__main__':
     train, test = load_data('Titanic')
     data_dif = DataDifferentiator(train=train, test=test)
 
-    # _summary, _diff, _fig = data_dif.inspect_feature('Pclass', plot=True)
-    # print(_summary)
-    # print(_diff)
-    # plot(_fig)
-
-    _summary, _fig = data_dif.dfs[0]._get_feature_summary('Pclass', plot=True)
+    _summary, _diff, _fig = data_dif.inspect_feature('Age', plot=True)
+    print(_summary)
+    print(_diff)
     plot(_fig)
+
+    # _summary, _fig = data_dif.dfs[0]._get_feature_summary('Pclass', plot=True)
+    # plot(_fig)
 
 
 
